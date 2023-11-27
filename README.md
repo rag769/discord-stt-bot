@@ -1,4 +1,4 @@
-# discord-tts-bot
+# discord-stt-bot
  A speech-to-text bot  for discord.
 
 ## 概要
