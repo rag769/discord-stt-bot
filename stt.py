@@ -1,15 +1,21 @@
 import asyncio
 import discord
 import speech_recognition as sr
+import threading
+import time
 
 from discord.ext import commands, voice_recv
 from discord.ext.voice_recv.extras import SpeechRecognitionSink
 
 
+SILENT_FRAME = b"\xf8\xff\xfe"
+
 class SpeechToText(commands.Cog):
     def __init__(self, bot: commands.Bot, wit_token: str):
         self.bot = bot
         self._wit_token = wit_token
+        self._player = SilentPlayer()
+        self._player.start()
 
     @commands.command()
     async def kaku(self, ctx):
@@ -59,6 +65,7 @@ class SpeechToText(commands.Cog):
                     process_cb=get_process_callback(), text_cb=get_text_callback()
                 )
             )
+            self._player.add(vc)
             await ctx.send("カン!カン!カン!!")
         else:
             await ctx.send("おおっと！もう別の文字起こしをしているみたいだな")
@@ -67,7 +74,46 @@ class SpeechToText(commands.Cog):
     async def kakanai(self, ctx):
         if ctx.voice_client and ctx.voice_client.is_connected():
             try:
+                self._player.delete(ctx.voice_client)
                 await ctx.voice_client.disconnect()
                 await ctx.send("久々に良い物が書けた。")
             except:
                 ...
+
+
+class SilentPlayer(threading.Thread):
+    def __init__(self, interval: int = 10):
+        super().__init__(daemon=True, name=f'silencespk-{id(self):x}')
+        self._end: threading.Event = threading.Event()
+        self._active: threading.Event = threading.Event()
+        self._voice_clients = []
+        self._interval: int = interval
+
+    def start(self) -> None:
+        self._end.clear()
+        super().start()
+
+
+    def stop(self) -> None:
+        self._end.set()
+        self.join(self._interval*2)
+
+    def add(self, client: discord.VoiceClient):
+        self._voice_clients.append(client)
+
+    def delete(self, client: discord.VoiceClient):
+        if client in self._voice_clients:
+            self._voice_clients.remove(client)
+
+    def run(self) -> None:
+        try:
+            self._do_run()
+        except Exception as e:
+            print(e)
+
+
+    def _do_run(self) -> None:
+        while not self._end.is_set():
+            time.sleep(self._interval)
+            for vc in self._voice_clients:
+                vc.send_audio_packet(SILENT_FRAME, encode=False)
